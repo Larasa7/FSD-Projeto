@@ -3,7 +3,7 @@ import json
 import time
 import random
 import logging
-
+# etfgrh
 # Configuração do logging (para mostrar mensagens informativas)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
