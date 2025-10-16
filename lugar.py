@@ -1,70 +1,71 @@
 import socket
-import json
+import threading
 import time
 import random
-import logging
-# etfgrh
-# Configuração do logging (para mostrar mensagens informativas)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# Parâmetros de ligação
-HOST = "127.0.0.1"  # endereço do servidor (localhost)
-PORT = 5000         # porta do servidor
-INTERVALO = 3       # segundos entre cada atualização
-PO = 0.3            # probabilidade de mudar de livre -> ocupado
-PL = 0.2            # probabilidade de mudar de ocupado -> livre
+CAPACIDADE = 25
+PO = 0.3  # Probabilidade de passar a ocupado
+PL = 0.2  # Probabilidade de passar a livre
+N = 5     # Intervalo em segundos
 
-def main():
-    # 1️⃣ criar socket TCP
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((HOST, PORT))
-    logging.info(f"Ligado ao servidor {HOST}:{PORT}")
+# Códigos ANSI para cores
+VERDE = "\033[92m"
+VERMELHO = "\033[91m"
+RESET = "\033[0m"
 
-    # converter o socket em streams de leitura e escrita
-    reader = s.makefile('r', encoding='utf-8')
-    writer = s.makefile('w', encoding='utf-8')
+class Lugar(threading.Thread):
+    def _init_(self, host, port):
+        super()._init_()
+        self.host = host
+        self.port = port
+        self.id_lugar = None
+        self.estado = 'livre'
+        self.estado_anterior = None
 
-    # 2️⃣ enviar pedido de registo
-    pedido = {"type": "REGISTER"}
-    writer.write(json.dumps(pedido) + "\n")
-    writer.flush()
+    def run(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.connect((self.host, self.port))
+                print(f"Ligado ao servidor {self.host}:{self.port}")
+            except ConnectionRefusedError:
+                print("Falha ao conectar com o servidor.")
+                return
 
-    resposta = reader.readline()
-    if not resposta:
-        logging.error("Servidor fechou a ligação.")
-        return
+            # Solicitar ID único
+            s.sendall(b'REQ_ID\n')
+            resp = s.recv(1024).decode().strip()
+            if resp.startswith("ID"):
+                self.id_lugar = int(resp.split()[1])
+                print(f"Resposta de registo: ACK (ID {self.id_lugar})")
+            else:
+                print(f"Falha ao iniciar lugar: {resp}")
+                return
 
-    logging.info(f"Resposta de registo: {resposta.strip()}")
+            while True:
+                time.sleep(N)
+                # Simular mudança de estado
+                if self.estado == 'livre' and random.random() < PO:
+                    self.estado = 'ocupado'
+                elif self.estado == 'ocupado' and random.random() < PL:
+                    self.estado = 'livre'
 
-    # 3️⃣ simular estado do lugar (livre/ocupado)
-    estado = "free"
+                # Enviar atualização
+                try:
+                    s.sendall(f"UPDATE {self.id_lugar} {self.estado}\n".encode())
+                    resposta = s.recv(1024).decode().strip()
+                    if self.estado != self.estado_anterior:
+                        cor = VERDE if self.estado == 'livre' else VERMELHO
+                        print(f"Resposta: {resposta} | Lugar {self.id_lugar} estado: {cor}{self.estado.upper()}{RESET}")
+                        self.estado_anterior = self.estado
+                    else:
+                        print(f"Resposta: {resposta}")
+                except:
+                    print(f"Lugar {self.id_lugar} perdeu conexão com o servidor.")
+                    break
 
-    while True:
-        time.sleep(INTERVALO)
-
-        # simular mudança de estado com base nas probabilidades
-        if estado == "free" and random.random() < PO:
-            estado = "occupied"
-        elif estado == "occupied" and random.random() < PL:
-            estado = "free"
-
-        # 4️⃣ enviar atualização
-        msg = {
-            "type": "UPDATE",
-            "sensor_id": "TEMP-ID",  # mais tarde o servidor pode atribuir um ID
-            "state": estado,
-            "ts": time.time()
-        }
-        writer.write(json.dumps(msg) + "\n")
-        writer.flush()
-
-        # 5️⃣ ler resposta do servidor
-        resposta = reader.readline()
-        if not resposta:
-            logging.warning("Servidor fechou a ligação.")
-            break
-
-        logging.info(f"Resposta: {resposta.strip()}")
-
-if __name__ == "__main__":
-    main()
+if _name_ == "_main_":
+    lugares = []
+    for _ in range(CAPACIDADE):
+        lugar = Lugar('127.0.0.1', 5000)
+        lugar.start()
+        lugares.append(lugar)
